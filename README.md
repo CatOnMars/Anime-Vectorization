@@ -1,4 +1,4 @@
-[[Goal]]
+#Goal
 This is a prototypical user interface for converting images to vectorized format.
 See a demo at: https://youtu.be/Ge4ZJ5FiHmE
 The application part start from 3:03.
@@ -6,14 +6,14 @@ The application part start from 3:03.
 This project is still in development;
 all non-opensource part are excluded out of this repository. 
 
-[[Description for each file]]
+#Description for each file
 server.py - APIs are defined here.
 pytorchWrapper.py - a wrapper for dealing with pyTorch models.
 WebUI/ - the web user interface frontend.
 pyVec/ - python C extention for fast curve extraction.
 PG2020_DDC.pdf - Paper draft.
 
-[[Architecture]]
+#Architecture
 This system consists of two parts: the web page UI and the API server.
 The web UI was built using Vue.js and the API server was built using 
 bottle.py, pyTorch, and a custom python extension "pyVec".
@@ -69,7 +69,7 @@ GET /reconstruction/<filename>: The rendered image.
 GET /curves/<filename>: The vectorized curve JSON data.
 
 
-[[Discussion]]
+#Discussion
 Current API have the problem that if two user upload files that have the same name, they may corrupt each other's data.
 The solution is simple: change the API to /curves/<username>/<filename> where <username> is unique.
 
