@@ -1,19 +1,19 @@
-#Goal
-This is a prototypical user interface for converting images to vectorized format.
-See a demo at: https://youtu.be/Ge4ZJ5FiHmE
+## Goal
+This is a prototypical user interface for converting images to vectorized format.<br>
+See a demo at: https://youtu.be/Ge4ZJ5FiHmE <br>
 The application part start from 3:03.
 
-This project is still in development;
-all non-opensource part are excluded out of this repository. 
+This project is still in development;<br>
+all non-opensource part are excluded out of this repository.<br> 
 
-#Description for each file
-server.py - APIs are defined here.
-pytorchWrapper.py - a wrapper for dealing with pyTorch models.
-WebUI/ - the web user interface frontend.
-pyVec/ - python C extention for fast curve extraction.
-PG2020_DDC.pdf - Paper draft.
+## Manifest
+__server.py__ - APIs are defined here. <br>
+__pytorchWrapper.py__ - a wrapper for dealing with pyTorch models. <br>
+__WebUI/__ - the web user interface frontend.<br>
+__pyVec/__ - python C extention for fast curve extraction.<br>
+__PG2020_DDC.pdf__ - Paper draft.<br>
 
-#Architecture
+## Architecture
 This system consists of two parts: the web page UI and the API server.
 The web UI was built using Vue.js and the API server was built using 
 bottle.py, pyTorch, and a custom python extension "pyVec".
@@ -26,50 +26,73 @@ image data for the web UI to display.
 The web UI's curve editing tool was built for <canvas> with a '2d' context.
 
 The curve data is stored in JSON objects:
-{
-    "curve_count": <int>,
-    "curves": [
-        {
-            "bestScale": [
-                <int>, ...
-            ],
-            "bs_size": <int>,
-            
-            "lc_size": <int>,
-            "leftColor": [
-                <R,G,B values from 0~255 in a flat array>
-            ],
-           
-            "rc_size": <int>,
-            "rightColor": [
-                <R,G,B values from 0~255 in a flat array>
-            ],
-
-             "pl_size": <int>,
-            "polyline_coord": [
-                <X, Y values in a flat array>
-            ],
-        },
-        {
-          ...
-        }
-    ]
-}
-
+	
+~~~
+	{
+		"curve_count": 1012,
+		"curves": [
+			{
+				"bestScale": [
+					1,
+					1,
+					1
+				],
+				"bs_size": 2,
+				"lc_size": 2,
+				"leftColor": [
+					1,
+					1,
+					1,
+					1,
+					1,
+					1,
+					1,
+					1,
+					1
+				],
+				"pl_size": 3,
+				"polyline_coord": [
+					7,
+					1,
+					7,
+					128,
+					7,
+					509
+				],
+				"rc_size": 2,
+				"rightColor": [
+					254,
+					254,
+					254,
+					254,
+					254,
+					254,
+					254,
+					254,
+					254
+				]
+			},
+			{
+				...
+			}
+		]
+	}
+~~~
+					
 The server-side API is defined as:
 
-POST /vectorize : the request contain an jpg or png image, this endpoint do the vectorization.
-				  This API returns "OK" when the vectorized data (curve JSON, edgeMap, colorSourceMap) are ready.
+>__POST /vectorize__ : the request contain an jpg or png image, this endpoint do the vectorization.<br>
+>		This API returns "OK" when the vectorized data (curve JSON, edgeMap, colorSourceMap) are ready.
+>
+>__POST /edgeMap__ :<br>
+>__POST /csMap__ :    Since the input to our neural network are two images, the API user could upload edgeMap and colorSourceMap 
+>for the server to do rendering. Note that the rendered image are ready while BOTH API returned "OK".<br>
+>
+>__GET /reconstruction/<filename>__ : The rendered image. <br>
+>__GET /curves/<filename>__ : The vectorized curve JSON data.<br>
 
-POST /edgeMap :
-POST /csMap :    Since the input to our neural network are two images, the API user could upload edgeMap and colorSourceMap 
-for the server to do rendering. Note that the rendered image are ready while BOTH API returned "OK".
 
-GET /reconstruction/<filename>: The rendered image.
-GET /curves/<filename>: The vectorized curve JSON data.
-
-
-#Discussion
+## Discussion
 Current API have the problem that if two user upload files that have the same name, they may corrupt each other's data.
 The solution is simple: change the API to /curves/<username>/<filename> where <username> is unique.
 
