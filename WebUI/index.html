@@ -1,0 +1,882 @@
+<script src="https://unpkg.com/axios/dist/axios.min.js"></script>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/bulma/0.7.5/css/bulma.css">
+<div id="app" tabindex="-1" v-on:keyup.esc="keyboardEvt">
+	<div class="column has-text-centered">
+  		<input class="button is-danger" type="file" ref="file" v-on:change="handleFileUpload">
+  		<button class="button is-primary" v-on:click="submitFile">Vectorize</button>
+  </div>
+  <div class="column has-text-centered">
+    <div>
+          <label>RGB_L</label>
+          <label v-bind:style="{ backgroundColor:lc, color:lc }">xxx</label>
+          <label for="color_LR">{{lr}}</label>
+          <input type="range" name="color_LR" v-model="lr" v-on:change="onLeftColorChange" min=0 max=255>
+          <label for="color_LG">{{lg}}</label>
+          <input type="range" name="color_LG" v-model="lg" v-on:change="onLeftColorChange" min=0 max=255>
+          <label for="color_LB">{{lb}}</label>
+          <input type="range" name="color_LB" v-model="lb" v-on:change="onLeftColorChange" min=0 max=255>
+        </div>
+        <br>
+        <div >
+          <label>RGB_R</label>
+          <label v-bind:style="{ backgroundColor:rc, color:rc }">xxx</label>
+          <label for="color_RR">{{rr}}</label>
+          <input type="range" name="color_RR" v-model="rr" v-on:change="onRightColorChange"  min=0 max=255>
+          <label for="color_RG">{{rg}}</label>
+          <input type="range" name="color_RG" v-model="rg" v-on:change="onRightColorChange" min=0 max=255>
+          <label for="color_RB">{{rb}}</label>
+          <input type="range" name="color_RB" v-model="rb" v-on:change="onRightColorChange" min=0 max=255>
+        </div>
+        <br>
+        <div>
+          <label for="blur">Blur factor : {{blur}}</label>
+          <input type="range" name="blur" v-model="blur" v-on:change="onBlurChange" min=0 max=10>
+          <label for="brushSize">Brush size : {{brushSize}}</label>
+          <input type="range" name="brushSize" v-model="brushSize" min=0 max=255.0>
+        </div>
+        <br>
+        <input type="radio" id="movePnt" name="mode" v-model='editMode' value="movePnt"
+                    checked>
+        <label for="movePnt">Move point</label>
+        <input type="radio" id="addPoly" name="mode" v-model='editMode' value="addPoly">
+        <label for="addPoly">Add polyline</label>
+        <input type="radio" id="delPnt" name="mode" v-model='editMode' value="delPnt">
+        <label for="delPnt">Delete point</label>
+        <input type="radio" id="insertPnt" name="mode" v-model='editMode' value="insertPnt">
+        <label for="insertPnt">Insert point</label>
+        <input type="radio" id="splitPoly" name="mode" v-model='editMode' value="splitPoly">
+        <label for="splitPoly">Split polyline</label>
+        <input type="radio" id="lightSource" name="mode" v-model='editMode' value="lightBrush">
+        <label for="lightSource">Color source</label>
+  </div>
+  <div class="columns">
+      <div class="column">
+        <div class="is-pulled-right">
+          <span class="label">Editable</span><br>
+          <canvas id="editable" ref="editable" v-on:mousemove="moveOnEditingArea"
+              v-on:mousedown="downOnEditingArea"
+              v-on:mouseup="upOnEditingArea"
+              width="512px" height="512px"></canvas>
+        </div>
+      </div>
+      <div class="column">
+        <div class="is-pulled-left">
+          <span class="label">Reconstruction</span><br>
+          <canvas id="recon" ref="recon" width="512px" height="512px"></canvas>
+        </div>
+      </div>
+  </div>
+  <div class="columns">
+      <div class=column>
+        <div class="is-pulled-right">
+          <span class="label">Edge map</span><br>
+          <canvas id="edgeCanvas" ref="edgeCanvas" width="512px" height="512px"></canvas>
+        </div>
+      </div>
+      <div class=column>
+        <div class="is-pulled-left">
+          <span class="label">Target image</span><br>
+          <canvas id="targetCanvas" ref="targetCanvas" width="512px" height="512px"></canvas>
+        </div>
+      </div>
+  </div>
+</div>
+<script src="https://cdn.jsdelivr.net/npm/vue/dist/vue.js"></script>
+<script>
+  function computeNormal(p1,p2){
+    let x1=p1[0];
+    let y1=p1[1];
+    let x2=p2[0];
+    let y2=p2[1];
+    var norm, x, y;
+    x = x2 - x1;
+    y = y2 - y1;
+    norm = Math.sqrt(x*x + y*y);
+    x = x/norm;
+    y = y/norm;
+    return [-y,x];
+  }
+
+	var app = new Vue({
+  		el: '#app',
+  		data: {
+    			message: 'Hello good!',
+    			now:'',
+    			fileToUpload:null,
+    			ctx:null,
+    			canvas:null,
+    			ctx2:null,
+    			canvas2:null,
+            ctx3:null,
+          canvas3:null,
+            ctx4:null,
+          canvas4:null,
+          curves:null,
+          brushSize: 5,
+          isDragging:false,
+          selectedPntIdx:null,
+          selectedCurve:null,
+          editMode:'movePnt',
+          lr:255,
+          lg:255,
+          lb:255,
+          rr:0,
+          rg:0,
+          rb:0,
+          blur:1
+  		},
+
+      computed: {
+          lc:function(){return 'rgb('+this.lr+','+this.lg+','+this.lb+')';},
+          rc:function(){return 'rgb('+this.rr+','+this.rg+','+this.rb+')';}
+
+      }
+      ,
+  		mounted:function(){
+  			this.canvas = this.$refs.targetCanvas;
+			this.ctx = this.canvas.getContext('2d');
+			this.canvas2 = this.$refs.edgeCanvas;
+			this.ctx2 = this.canvas2.getContext('2d');
+      this.canvas3 = this.$refs.editable;
+      this.ctx3 = this.canvas3.getContext('2d');
+      this.canvas4 = this.$refs.recon;
+      this.ctx4 = this.canvas4.getContext('2d');
+
+      this.ctx3.imageSmoothingEnabled= false;
+      this.ctx2.imageSmoothingEnabled= false;
+      this.ctx.imageSmoothingEnabled = false;
+      this.ctx4.imageSmoothingEnabled=false;
+      this.ctx.mozImageSmoothingEnabled = false;
+      this.ctx.webkitImageSmoothingEnabled = false;
+      this.ctx.msImageSmoothingEnabled = false;
+      this.ctx2.mozImageSmoothingEnabled = false;
+      this.ctx2.webkitImageSmoothingEnabled = false;
+      this.ctx2.msImageSmoothingEnabled = false;
+      this.ctx3.mozImageSmoothingEnabled = false;
+      this.ctx3.webkitImageSmoothingEnabled = false;
+      this.ctx3.msImageSmoothingEnabled = false;
+      this.ctx4.mozImageSmoothingEnabled = false;
+      this.ctx4.webkitImageSmoothingEnabled = false;
+      this.ctx4.msImageSmoothingEnabled = false;
+
+     // this.ctx3.translate(0.5, 0.5);
+     // this.ctx2.translate(0.5, 0.5);
+      this.fileToUpload=new File([],"newImg.png");
+        this.ctx.beginPath();
+        this.ctx.fillStyle = 'rgb(0, 0, 0)';
+        this.ctx.fillRect(0,0,512,512);
+        this.ctx.fill();
+        this.ctx.closePath();
+
+        this.ctx2.beginPath();
+        this.ctx2.fillStyle = 'rgb(0, 0, 0)';
+        this.ctx2.fillRect(0,0,512,512);
+        this.ctx2.fill();
+        this.ctx2.closePath();
+
+        this.ctx3.beginPath();
+        this.ctx3.fillStyle = 'rgb(0, 0, 0)';
+        this.ctx3.fillRect(0,0,512,512);
+        this.ctx3.fill();
+        this.ctx3.closePath();
+
+        this.ctx4.beginPath();
+        this.ctx4.fillStyle = 'rgb(0, 0, 0)';
+        this.ctx4.fillRect(0,0,512,512);
+        this.ctx4.fill();
+        this.ctx4.closePath();
+
+
+  		},
+  		methods: {
+  			computeTime: function(){return Date.now();},
+  			handleFileUpload: function(){ 
+  				this.fileToUpload = this.$refs.file.files[0];
+  			},
+        onBlurChange:function(){
+          if (app.selectedCurve!=null&&app.selectedPntIdx!=null){
+             app.selectedCurve.bestScale[app.selectedPntIdx]=app.blur;
+             app.genReconInput();
+          }
+
+        }
+        ,
+        onLeftColorChange:function(){
+          if (app.selectedCurve!=null&&app.selectedPntIdx!=null){
+             app.selectedCurve.leftColor[app.selectedPntIdx*3+2]=app.lr;
+             app.selectedCurve.leftColor[app.selectedPntIdx*3+1]=app.lg;
+             app.selectedCurve.leftColor[app.selectedPntIdx*3+0]=app.lb;
+           //  app.lc="rgb("+app.lr+","+app.lg+","+app.lb+")";
+             app.genReconInput();
+          } 
+        }
+        ,
+        onRightColorChange:function(){
+          if (app.selectedCurve!=null&&app.selectedPntIdx!=null){
+             app.selectedCurve.rightColor[app.selectedPntIdx*3+2]=app.rr;
+             app.selectedCurve.rightColor[app.selectedPntIdx*3+1]=app.rg;
+             app.selectedCurve.rightColor[app.selectedPntIdx*3+0]=app.rb;
+             app.genReconInput();
+          }
+        }
+        ,
+  			updateCanvas:function(){
+  				var img = new Image();   // Create new img element
+  				var imgEdge = new Image();
+          var imgEdit = new Image();
+          var imgRecon = new Image();
+  				img.src = 'uploads/'+this.fileToUpload.name; // Set source path
+  				imgEdge.src = 'edgeMap/'+this.fileToUpload.name; // Set source path
+          imgEdit.src = 'bEdgeMap/'+this.fileToUpload.name; // Set source path
+          imgRecon.src = 'reconstruction/'+this.fileToUpload.name; // Set source path
+				img.onload=function() {
+  							// execute drawImage statements here
+  							app.ctx.drawImage(img, 0, 0);
+				};
+				imgEdge.onload=function() {
+  							// execute drawImage statements here
+  							app.ctx2.drawImage(imgEdge, 0, 0);
+				};
+        imgEdit.onload=function() {
+                // execute drawImage statements here
+               // app.ctx3.drawImage(imgEdit, 0, 0);
+            axios.get( '/curves/'+app.fileToUpload.name
+              ).then(function(response){
+                console.log("Curve Json GET!!");
+                app.curves=response.data;
+                app.updateCurves();
+                });
+        };
+        
+        imgRecon.onload=function() {
+                // execute drawImage statements here
+                app.ctx4.drawImage(imgRecon, 0, 0);
+        };
+
+        
+				
+  			},
+        updateCurves: function(){
+          app.ctx3.fillStyle = 'rgb(0, 0, 0)';
+          app.ctx3.fillRect(0,0,512,512);
+
+          app.curves.curves.forEach(
+            function(curve){
+              app.ctx3.strokeStyle = 'rgb(255, 255, 255)';
+              app.ctx3.beginPath();
+              var y=curve.polyline_coord[0];
+              var x=curve.polyline_coord[1];
+              app.ctx3.moveTo(x, y);
+           for (var i=1;i<curve.pl_size;++i){
+              y=curve.polyline_coord[i*2];
+              x=curve.polyline_coord[i*2+1];
+              app.ctx3.lineTo(x,y);
+              //console.log(x,y);
+             // app.ctx3.stroke();
+              
+            }
+            app.ctx3.stroke();
+
+            app.ctx3.fillStyle = 'rgb(255, 50, 50)';
+            app.ctx3.strokeStyle = 'rgb(255, 50, 50)';
+            for (var i=0;i<curve.pl_size;++i){
+              y=curve.polyline_coord[i*2];
+              x=curve.polyline_coord[i*2+1];
+              app.ctx3.beginPath();
+              app.ctx3.arc(x, y, 1, 0, 2 * Math.PI, true);
+              app.ctx3.fill();
+            }
+          });
+        },
+        moveOnEditingArea:function(evt){
+        //  if(app.curves!=null){
+        //    app.drawCtlPnt();
+        //  }
+          if(app.selectedPntIdx!=null&&app.isDragging){
+         // console.log('mouse move');
+            app.ctx3.fillStyle = 'rgb(0, 0, 0)';
+            app.ctx3.fillRect(0,0,512,512);
+
+          
+            let mx=evt.offsetX;
+            let my=evt.offsetY;
+            app.selectedCurve.polyline_coord[app.selectedPntIdx*2]=my;
+            app.selectedCurve.polyline_coord[app.selectedPntIdx*2+1]=mx;
+           // console.log(app.selectedCurve);
+          
+          app.curves.curves.forEach(
+            function(curve){
+              /*
+              for (var i=0;i<curve.pl_size;++i){
+                var y=curve.polyline_coord[i*2];
+                var x=curve.polyline_coord[i*2+1];
+                let mx=evt.offsetX;
+                let my=evt.offsetY;
+                let dist=(mx-x)*(mx-x)+(my-y)*(my-y);
+                //console.log(dist);
+                if (dist<=(app.brushSize*app.brushSize)&& app.isDragging){
+                    curve.polyline_coord[i*2]=my;
+                    curve.polyline_coord[i*2+1]=mx;
+                    app.selectedPntIdx=i;
+                    app.selectedCurve=curve;
+                }
+              }*/
+
+              app.ctx3.strokeStyle = 'rgb(255, 255, 255)';
+              app.ctx3.beginPath();
+              var y=curve.polyline_coord[0];
+              var x=curve.polyline_coord[1];
+              app.ctx3.moveTo(x, y);
+              for (var i=1;i<curve.pl_size;++i){
+                y=curve.polyline_coord[i*2];
+                x=curve.polyline_coord[i*2+1];
+                app.ctx3.lineTo(x,y);
+                //console.log(x,y);
+              // app.ctx3.stroke();
+              
+                }
+                app.ctx3.stroke();
+                app.ctx3.closePath();
+              
+            for (var i=0;i<curve.pl_size;++i){
+              y=curve.polyline_coord[i*2];
+              x=curve.polyline_coord[i*2+1];
+             // let mx=evt.offsetX;
+             // let my=evt.offsetY;
+             // let dist=(mx-x)*(mx-x)+(my-y)*(my-y);
+              if(i==app.selectedPntIdx&&curve==app.selectedCurve){
+                app.ctx3.fillStyle = 'rgb(0, 255, 0)';
+              }
+              else{
+                app.ctx3.fillStyle = 'rgb(255, 50, 50)';
+              }
+
+              app.ctx3.beginPath();
+              app.ctx3.arc(x, y, 1, 0, 2 * Math.PI, true);
+              app.ctx3.fill();
+              app.ctx3.closePath();
+            }
+
+            });
+        }
+        },
+        lightBrush:function(evt){
+          if(app.curves!=null){
+            app.curves.curves.forEach(
+            function(curve){
+              
+              for (var i=0;i<curve.pl_size-1;++i){
+                var y=curve.polyline_coord[i*2];
+                var x=curve.polyline_coord[i*2+1];
+                let y2=curve.polyline_coord[i*2+2];
+                let x2=curve.polyline_coord[i*2+3];
+                let mx=evt.offsetX;
+                let my=evt.offsetY;
+                let dist1=(mx-x)*(mx-x)+(my-y)*(my-y);
+                let dist2=(mx-x2)*(mx-x2)+(my-y2)*(my-y2);
+
+                let normal=computeNormal([x,y],[x2,y2])
+                let lx=x2-x;
+                let ly=y2-y;
+
+                //console.log(dist);
+                if (dist1<=(app.brushSize*app.brushSize)){
+                    let dx=mx-x;
+                    let dy=my-y;
+                    let dot=normal[0]*dx+normal[1]*dy;
+                    let cross=dx*ly-dy*lx;
+                    if(cross>0){
+                      curve.leftColor[i*3+2]=app.lr;
+                      curve.leftColor[i*3+1]=app.lg;
+                      curve.leftColor[i*3+0]=app.lb;
+                    }
+                    if(cross<0){
+                      curve.rightColor[i*3+2]=app.lr;
+                      curve.rightColor[i*3+1]=app.lg;
+                      curve.rightColor[i*3+0]=app.lb;
+                    }
+
+                    curve.bestScale[i]=app.blur;
+
+                }
+                if (dist2<=(app.brushSize*app.brushSize)){
+                    let dx=mx-x2;
+                    let dy=my-y2;
+                    let dot=normal[0]*dx+normal[1]*dy;
+                    let cross=dx*ly-dy*lx;
+                    if(cross>0){
+                      curve.leftColor[i*3+5]=app.lr;
+                      curve.leftColor[i*3+4]=app.lg;
+                      curve.leftColor[i*3+3]=app.lb;
+                    }
+                    if(cross<0){
+                      curve.rightColor[i*3+5]=app.lr;
+                      curve.rightColor[i*3+4]=app.lg;
+                      curve.rightColor[i*3+3]=app.lb;
+                    }
+
+                    curve.bestScale[i]=app.blur;
+
+                }
+              }
+            });
+            app.genReconInput();
+            app.updateRecon();
+          }
+
+        }
+        ,
+        downOnEditingArea:function(evt){
+
+            if (app.editMode=='lightBrush'){
+                app.lightBrush(evt);
+            }
+            else if(app.editMode=='addPoly'){
+
+                if (app.curves==null){
+
+                  app.ctx3.fillStyle='black'
+                  app.ctx3.fillRect(0,0,512,512);
+                  app.ctx3.fill();
+
+                  app.fileToUpload.name="newfile.png";
+                app.curves={
+                  curve_count:2,
+                  curves:[
+                  {
+                    "bestScale": [
+                      2,2,2,2,2
+                  ],
+                  "bs_size": 5,
+                  "lc_size": 5,
+                  "leftColor": [
+                      0,0,0,
+                      0,0,0,
+                      0,0,0,
+                      0,0,0,
+                      0,0,0
+                  ],
+                  "pl_size": 5,
+                  "polyline_coord": [
+                      0,0,
+                      0,511,
+                      511,511,
+                      511,0,
+                      1,0
+                  ],
+                  "rc_size": 5,
+                  "rightColor": [
+                      0,0,0,
+                      0,0,0,
+                      0,0,0,
+                      0,0,0,
+                      0,0,0,
+                  ]
+
+                  }
+                  ,
+                  {
+                      "bestScale": [
+                      app.blur
+                  ],
+                  "bs_size": 1,
+                  "lc_size": 1,
+                  "leftColor": [
+                      app.lb,
+                      app.lg,
+                      app.lr
+                  ],
+                  "pl_size": 1,
+                  "polyline_coord": [
+                      evt.offsetY,
+                      evt.offsetX
+                  ],
+                  "rc_size": 1,
+                  "rightColor": [
+                      app.rb,
+                      app.rg,
+                      app.rr
+                  ]
+
+                }]
+              }
+                app.genReconInput();
+                app.drawCtlPnt();
+                app.selectedCurve=app.curves.curves[1];
+                app.selectedPntIdx=0;
+                app.isStillAdding=true;
+              }
+              else{
+                    if(!app.isStillAdding){
+                      app.curves.curves.push({
+                        "bestScale": [
+                        app.blur
+                        ],
+                        "bs_size": 1,
+                        "lc_size": 1,
+                        "leftColor": [
+                            app.lb,
+                            app.lg,
+                            app.lr
+                        ],
+                        "pl_size": 1,
+                        "polyline_coord": [
+                            evt.offsetY,
+                            evt.offsetX
+                        ],
+                        "rc_size": 1,
+                        "rightColor": [
+                            app.rb,
+                            app.rg,
+                            app.rr
+                        ]
+
+                            });
+                        app.curves.curve_count+=1;
+                        app.selectedCurve=app.curves.curves[app.curves.curve_count-1];
+                        app.selectedPntIdx=0;
+                        app.isStillAdding=true;
+                      }
+                      else{
+                            app.selectedCurve.bestScale.push(app.blur);
+                            app.selectedCurve.leftColor.push(app.lb);
+                            app.selectedCurve.leftColor.push(app.lg);
+                            app.selectedCurve.leftColor.push(app.lr);
+                            app.selectedCurve.rightColor.push(app.rb);
+                            app.selectedCurve.rightColor.push(app.rg);
+                            app.selectedCurve.rightColor.push(app.rr);
+                            app.selectedCurve.polyline_coord.push(evt.offsetY);
+                            app.selectedCurve.polyline_coord.push(evt.offsetX);
+                            app.selectedCurve.pl_size+=1;
+                            app.selectedCurve.bs_size+=1;
+                            app.selectedCurve.rc_size+=1;
+                            app.selectedCurve.lc_size+=1;
+
+                            app.selectedPntIdx=app.selectedCurve.pl_size-1;
+
+                        }
+                        app.genReconInput();
+                        app.drawCtlPnt();
+                  }
+            }
+            else if(app.editMode=='movePnt'){
+              app.curves.curves.forEach(
+            function(curve){
+              
+              for (var i=0;i<curve.pl_size;++i){
+                var y=curve.polyline_coord[i*2];
+                var x=curve.polyline_coord[i*2+1];
+                let mx=evt.offsetX;
+                let my=evt.offsetY;
+                let dist=(mx-x)*(mx-x)+(my-y)*(my-y);
+                //console.log(dist);
+                if (dist<=(app.brushSize*app.brushSize)){
+                    app.selectedPntIdx=i;
+                    app.selectedCurve=curve;
+                    app.isDragging=true;
+
+                    app.lr=curve.leftColor[i*3+2];
+                    app.lg=curve.leftColor[i*3+1];
+                    app.lb=curve.leftColor[i*3+0];
+
+                    app.rr=curve.rightColor[i*3+2];
+                    app.rg=curve.rightColor[i*3+1];
+                    app.rb=curve.rightColor[i*3+0];
+
+                    app.blur = curve.bestScale[i];
+
+                }
+              }
+            });
+          }
+            
+        }
+        ,
+        keyboardEvt:function(evt){
+       //   console.log('space');
+          switch(app.editMode){
+            case "addPoly":
+              app.isStillAdding=false;
+              app.genReconInput();
+              app.updateRecon();
+              app.drawCtlPnt();
+        //      console.log('space');
+              break;
+            default:
+            break;
+          }
+        }
+        ,
+        updateRecon:function (){
+          var edgeMap=new Image();
+            var csMap=new Image();
+            app.canvas2.toBlob(function(blob){
+                //console.log(blob);
+                var imgFile= new File([blob],app.fileToUpload.name, {type: blob.type});
+                let formData = new FormData();
+                formData.append('file', imgFile);
+            axios.post( '/edgeMap',
+                      formData,
+                  {
+                    headers: {
+                        'Content-Type': 'multipart/form-data',
+                        'Cache-Control': "no-cache"
+                    }
+                  }
+              ).then(function(){
+                console.log('edgeMap SUCCESS!!');
+              })
+              .catch(function(){
+                console.log('Edge FAILURE!!');
+              });
+
+            }, 'image/png');
+
+            app.canvas3.toBlob(function(blob){
+                var imgFile= new File([blob],app.fileToUpload.name, {type: blob.type});
+                let formData = new FormData();
+                formData.append('file', imgFile);
+            axios.post( '/csMap',
+                      formData,
+                  {
+                    headers: {
+                        'Content-Type': 'multipart/form-data',
+                        'Cache-Control': "no-cache"
+                    }
+                  }
+              ).then(function(response){
+                console.log('csMap SUCCESS!!');
+                var img=new Image();
+                img.src = 'reconstruction/'+app.fileToUpload.name+"?rand="+Date.now(); // Set source path
+                img.onload = function(){
+                  app.ctx4.drawImage(img,0,0);
+                  console.log('refresh SUCCESS');
+                }
+
+              })
+              .catch(function(){
+                console.log('CS FAILURE!!');
+              });
+
+            }, 'image/png');
+        }
+        ,
+        upOnEditingArea:function(evt){
+          if(app.editMode=="addPoly"){
+
+
+
+          }
+          else if(app.editMode=="movePnt"){
+            app.isDragging=false;
+            //app.selectedPntIdx=null;
+            //app.selectedCurve=null;
+            app.genReconInput();
+            app.updateRecon();
+            app.drawCtlPnt();
+          }
+        }
+        ,
+        drawCtlPnt:function(){
+          app.curves.curves.forEach(
+            function(curve){          
+            for (var i=0;i<curve.pl_size;++i){
+              let y=curve.polyline_coord[i*2];
+              let x=curve.polyline_coord[i*2+1];
+              if(i==app.selectedPntIdx&&curve==app.selectedCurve){
+                app.ctx3.fillStyle = 'rgb(0, 255, 0)';
+              }
+              else{
+                app.ctx3.fillStyle = 'rgb(255, 50, 50)';
+              }
+
+              app.ctx3.beginPath();
+              app.ctx3.arc(x, y, 1, 0, 2 * Math.PI, true);
+              app.ctx3.fill();
+              app.ctx3.closePath();
+            }
+
+          });
+        }
+        ,
+        genReconInput:function(){
+          app.ctx2.fillStyle='rgb(0,0,0)';
+          app.ctx2.fillRect(0,0,512,512);
+          
+          app.curves.curves.forEach(
+            function(curve){
+              app.ctx2.strokeStyle = 'rgb(255, 255, 255)';
+              app.ctx2.fillStyle='rgb(255,255,255)';
+              app.ctx2.lineWdith=1;
+              app.ctx2.lineCap='square';
+              app.ctx2.beginPath();
+              //var y=curve.polyline_coord[0];
+              //var x=curve.polyline_coord[1];
+              //app.ctx2.moveTo(x, y);
+              for (var i=0;i<curve.pl_size-1;++i){
+                let y=curve.polyline_coord[i*2];
+                let x=curve.polyline_coord[i*2+1];
+                let y2=curve.polyline_coord[i*2+2];
+                let x2=curve.polyline_coord[i*2+3];
+                app.myDrawLine(app.ctx2,x,y,x2,y2);
+             //   app.ctx2.lineTo(x,y);
+                //console.log(x,y);
+              // app.ctx3.stroke();
+              
+                }
+              app.ctx2.fill();
+              app.ctx2.closePath();
+           }
+          );
+
+          app.ctx3.fillStyle='rgb(0,0,0)';
+          app.ctx3.fillRect(0,0,512,512);
+          app.curves.curves.forEach(
+            function(curve){
+             
+              for (var i=0;i<curve.pl_size-1;++i){
+                  app.ctx3.beginPath();
+                  let y=curve.polyline_coord[i*2+0];
+                  let x=curve.polyline_coord[i*2+1];
+                  let y2=curve.polyline_coord[i*2+2];
+                  let x2=curve.polyline_coord[i*2+3];
+                  let normal=computeNormal([x,y],[x2,y2])
+                  let bs1=curve.bestScale[i+0];
+                  let bs2=curve.bestScale[i+1];
+                  let sigma1 = 0.8+0.4*(bs1-1);
+                  let sigma2 = 0.8+0.4*(bs2-1);
+                  let lx1=x -parseInt(normal[0]*sigma1*2+0.);
+                  let ly1=y -parseInt(normal[1]*sigma1*2+0.);
+                  let lx2=x2-parseInt(normal[0]*sigma2*2+0.);
+                  let ly2=y2-parseInt(normal[1]*sigma2*2+0.);
+             //     var grad= app.ctx3.createLinearGradient(lx1, ly1, lx2, ly2);
+                  var c1=[curve.leftColor[i*3+2],curve.leftColor[i*3+1],curve.leftColor[i*3+0]];
+                  var c2=[curve.leftColor[i*3+5],curve.leftColor[i*3+4],curve.leftColor[i*3+3]];
+                //  console.log(c1,c2);
+             //     grad.addColorStop(0, c1);
+             //     grad.addColorStop(1, c2);
+             //     app.ctx3.strokeStyle=grad;
+             //     app.ctx3.lineWdith=1;
+             //     app.ctx3.lineCap='square';
+             //     app.ctx3.moveTo(lx1, ly1);
+             //     app.ctx3.lineTo(lx2, ly2);
+             //     app.ctx3.stroke();
+                  app.myDrawLine2(app.ctx3,lx1,ly1,lx2,ly2,c1,c2);
+                  app.ctx3.fill();
+                  app.ctx3.closePath();
+              
+              }
+             
+
+              for (var i=0;i<curve.pl_size-1;++i){
+                  app.ctx3.beginPath();
+
+                  let y=curve.polyline_coord[i*2+0];
+                  let x=curve.polyline_coord[i*2+1];
+                  let y2=curve.polyline_coord[i*2+2];
+                  let x2=curve.polyline_coord[i*2+3];
+                  let normal=computeNormal([x,y],[x2,y2])
+                  let bs1=curve.bestScale[i+0];
+                  let bs2=curve.bestScale[i+1];
+                  let sigma1 = 0.8+0.4*(bs1-1);
+                  let sigma2 = 0.8+0.4*(bs2-1);
+                  let lx1=x +parseInt(normal[0]*sigma1*2+0.);
+                  let ly1=y +parseInt(normal[1]*sigma1*2+0.);
+                  let lx2=x2+parseInt(normal[0]*sigma2*2+0.);
+                  let ly2=y2+parseInt(normal[1]*sigma2*2+0.);
+                //  var grad= app.ctx3.createLinearGradient(lx1, ly1, lx2, ly2);
+                  var c1=[curve.rightColor[i*3+2] , curve.rightColor[i*3+1], curve.rightColor[i*3+0]];
+                  var c2=[curve.rightColor[i*3+5] , curve.rightColor[i*3+4], curve.rightColor[i*3+3]];
+              //    grad.addColorStop(0, "rgb("+curve.rightColor[i*3+2]+","+curve.rightColor[i*3+1]+","+curve.rightColor[i*3+0]+")");
+              //    grad.addColorStop(1, "rgb("+curve.rightColor[i*3+5]+","+curve.rightColor[i*3+4]+","+curve.rightColor[i*3+3]+")");
+              //    app.ctx3.strokeStyle=grad;
+              //    app.ctx3.lineWdith=1;
+              //    app.ctx3.lineCap='square';
+              //    app.ctx3.moveTo(lx1, ly1);
+              //    app.ctx3.lineTo(lx2, ly2);
+              //    app.ctx3.stroke();
+                  app.myDrawLine2(app.ctx3,lx1,ly1,lx2,ly2,c1,c2);
+                  app.ctx3.fill();
+                  app.ctx3.closePath();
+
+              
+              }
+                           
+           }
+          );
+
+
+
+
+        }
+        ,
+        myDrawLine:function(ctx,sx,sy,tx,ty){
+          // some helper functions
+          // finds the distance between points
+          function DBP(x1,y1,x2,y2) {
+              return Math.sqrt((x2-x1)*(x2-x1)+(y2-y1)*(y2-y1));
+          }
+          // finds the angle of (x,y) on a plane from the origin
+          function getAngle(x,y) { return Math.atan(y/(x==0?0.01:x))+(x<0?Math.PI:0); }
+          // the function
+          var dist = DBP(sx,sy,tx,ty); // length of line
+          var ang = getAngle(tx-sx,ty-sy); // angle of line
+          for(var i=0;i<dist;i++) {
+              // for each point along the line
+              ctx.fillRect(Math.round(sx + Math.cos(ang)*i), // round for perfect pixels
+                     Math.round(sy + Math.sin(ang)*i), // thus no aliasing
+                     1,1); // fill in one pixel, 1x1
+          }
+        }
+        ,
+        myDrawLine2:function(ctx,sx,sy,tx,ty,c1,c2){
+          // some helper functions
+          // finds the distance between points
+          function DBP(x1,y1,x2,y2) {
+              return Math.sqrt((x2-x1)*(x2-x1)+(y2-y1)*(y2-y1));
+          }
+          // finds the angle of (x,y) on a plane from the origin
+          function getAngle(x,y) { return Math.atan(y/(x==0?0.01:x))+(x<0?Math.PI:0); }
+          // the function
+          var dist = DBP(sx,sy,tx,ty); // length of line
+          var ang = getAngle(tx-sx,ty-sy); // angle of line
+          for(var i=0;i<dist;i++) {
+              // for each point along the line
+              var t=i/dist;
+              var c='rgb('+((1-t)*c1[0]+t*c2[0])+','+((1-t)*c1[1]+t*c2[1])+','+((1-t)*c1[2]+t*c2[2])+')';
+            //  console.log(c,t);
+              ctx.fillStyle=c;
+              ctx.fillRect(Math.round(sx + Math.cos(ang)*i), // round for perfect pixels
+                     Math.round(sy + Math.sin(ang)*i), // thus no aliasing
+                     1,1); // fill in one pixel, 1x1
+           //   ctx.fill();
+          }
+        }
+        ,
+  			submitFile:function(){
+  				console.log(this.fileToUpload);
+  				let formData = new FormData();
+            	formData.append('file', this.fileToUpload);
+
+        /*
+          Make the request to the POST /single-file URL
+        */
+            	axios.post( '/vectorize',
+                			formData,
+                	{
+                		headers: {
+                    		'Content-Type': 'multipart/form-data'
+                		}
+              		}
+            	).then(function(){
+          			
+          			app.updateCanvas();
+					console.log('SUCCESS!!');
+        		})
+        		.catch(function(){
+          			console.log('FAILURE!!');
+        		});
+  			}
+  		}
+  	})
+</script>
